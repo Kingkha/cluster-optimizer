@@ -1,0 +1,62 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  const project = await prisma.project.findUnique({
+    where: { id },
+    include: {
+      nodes: {
+        orderBy: [{ publishOrder: "asc" }, { sortOrder: "asc" }],
+        include: { children: true },
+      },
+      links: {
+        include: {
+          source: { select: { title: true, slug: true } },
+          target: { select: { title: true, slug: true } },
+        },
+      },
+      missingNodes: { orderBy: { confidenceScore: "desc" } },
+    },
+  });
+
+  if (!project) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  return NextResponse.json(project);
+}
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  const body = await req.json();
+  const { topic, country, language, domain, niche } = body;
+
+  const project = await prisma.project.update({
+    where: { id },
+    data: {
+      ...(topic !== undefined && { topic }),
+      ...(country !== undefined && { country }),
+      ...(language !== undefined && { language }),
+      ...(domain !== undefined && { domain }),
+      ...(niche !== undefined && { niche }),
+    },
+  });
+
+  return NextResponse.json(project);
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  await prisma.project.delete({ where: { id } });
+  return NextResponse.json({ ok: true });
+}

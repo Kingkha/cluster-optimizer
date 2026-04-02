@@ -1,65 +1,98 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+
+interface ProjectSummary {
+  id: string;
+  topic: string;
+  country: string | null;
+  niche: string | null;
+  status: string;
+  createdAt: string;
+  _count: { nodes: number; links: number; missingNodes: number };
+}
+
+const statusColors: Record<string, string> = {
+  pending: "bg-yellow-100 text-yellow-800",
+  generating: "bg-blue-100 text-blue-800",
+  enriching: "bg-purple-100 text-purple-800",
+  ready: "bg-green-100 text-green-800",
+  error: "bg-red-100 text-red-800",
+};
+
+export default function Dashboard() {
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/projects")
+      .then((r) => r.json())
+      .then(setProjects)
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="p-8 text-center text-muted-foreground">Loading...</div>
+    );
+  }
+
+  if (projects.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-4">
+        <h2 className="text-2xl font-semibold">No clusters yet</h2>
+        <p className="text-muted-foreground">
+          Create your first content cluster to get started.
+        </p>
+        <Link href="/new">
+          <Button size="lg">Create Cluster</Button>
+        </Link>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="p-6 max-w-5xl mx-auto">
+      <h1 className="text-2xl font-bold mb-6">Your Clusters</h1>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {projects.map((p) => (
+          <Link key={p.id} href={`/project/${p.id}`}>
+            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base line-clamp-1">
+                    {p.topic}
+                  </CardTitle>
+                  <Badge
+                    variant="secondary"
+                    className={statusColors[p.status] || ""}
+                  >
+                    {p.status}
+                  </Badge>
+                </div>
+                <CardDescription>
+                  {[p.country, p.niche].filter(Boolean).join(" · ") ||
+                    "No details"}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-4 text-sm text-muted-foreground">
+                  <span>{p._count.nodes} pages</span>
+                  <span>{p._count.links} links</span>
+                  <span>{p._count.missingNodes} gaps</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {new Date(p.createdAt).toLocaleDateString()}
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }
