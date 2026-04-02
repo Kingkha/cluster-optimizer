@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  topic     String
+  country   String?
+  language  String?  @default("en")
+  domain    String?
+  niche     String?
+  status    String   @default("pending") // pending | generating | enriching | ready | error
+  errorMsg  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  nodes        ClusterNode[]
+  links        LinkSuggestion[]
+  missingNodes MissingNode[]
+}
+
+model ClusterNode {
+  id            String   @id @default(cuid())
+  projectId     String
+  title         String
+  slug          String
+  role          String   // pillar | sub-pillar | support | comparison | list | informational
+  groupName     String?
+  parentId      String?
+  sortOrder     Int      @default(0)
+  priorityScore Float    @default(0)
+  publishOrder  Int      @default(0)
+  centrality    Float    @default(0)
+  supportValue  Float    @default(0)
+  opportunity   Float    @default(0)
+  ease          Float    @default(0)
+  serpClarity   Float    @default(0)
+  targetKeyword String?
+  searchIntent  String?  // informational | commercial | transactional | navigational
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project       Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent        ClusterNode?   @relation("NodeHierarchy", fields: [parentId], references: [id])
+  children      ClusterNode[]  @relation("NodeHierarchy")
+  outgoingLinks LinkSuggestion[] @relation("LinkSource")
+  incomingLinks LinkSuggestion[] @relation("LinkTarget")
+
+  @@index([projectId])
+}
+
+model LinkSuggestion {
+  id         String @id @default(cuid())
+  projectId  String
+  sourceId   String
+  targetId   String
+  anchorText String
+  context    String?
+  linkType   String @default("contextual") // contextual | navigational | related-reading
+
+  project Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  source  ClusterNode @relation("LinkSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  target  ClusterNode @relation("LinkTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model MissingNode {
+  id              String @id @default(cuid())
+  projectId       String
+  suggestedTitle  String
+  suggestedRole   String
+  reason          String
+  confidenceScore Float  @default(0.5)
+  parentNodeId    String?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
