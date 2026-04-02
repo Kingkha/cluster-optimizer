@@ -1,4 +1,4 @@
-export type ProjectStatus = "pending" | "generating" | "enriching" | "ready" | "error";
+export type ProjectStatus = "pending" | "fetching-data" | "generating" | "enriching" | "ready" | "error";
 
 export type NodeRole = "pillar" | "sub-pillar" | "support" | "comparison" | "list" | "informational";
 
@@ -20,6 +20,27 @@ export interface ProjectWithRelations {
   nodes: ClusterNodeData[];
   links: LinkSuggestionData[];
   missingNodes: MissingNodeData[];
+  crawledPages?: CrawledPageRecord[];
+  gscQueries?: GscQueryRecord[];
+}
+
+export interface CrawledPageRecord {
+  id: string;
+  url: string;
+  path: string;
+  title: string | null;
+  h1: string | null;
+  wordCount: number | null;
+  matchedNodeId: string | null;
+}
+
+export interface GscQueryRecord {
+  id: string;
+  query: string;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  position: number;
 }
 
 export interface ClusterNodeData {
@@ -41,6 +62,10 @@ export interface ClusterNodeData {
   targetKeyword: string | null;
   searchIntent: string | null;
   notes: string | null;
+  realVolume: number | null;
+  realDifficulty: number | null;
+  realCpc: number | null;
+  dataSource: string | null;
   children?: ClusterNodeData[];
 }
 

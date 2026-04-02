@@ -1,9 +1,13 @@
+import type { DataSourceContext, CrawledPageData } from "@/lib/data-sources/types";
+
 export function clusterGenerationPrompt(params: {
   topic: string;
   country?: string | null;
   language?: string | null;
   niche?: string | null;
   domain?: string | null;
+  serpContext?: DataSourceContext | null;
+  crawledPages?: CrawledPageData[] | null;
 }): string {
   const parts = [
     `You are an expert SEO content strategist. Given a seed topic, generate a complete content cluster structure.`,
@@ -16,6 +20,56 @@ export function clusterGenerationPrompt(params: {
     parts.push(`Language: ${params.language}`);
   if (params.niche) parts.push(`Niche/site type: ${params.niche}`);
   if (params.domain) parts.push(`Domain: ${params.domain}`);
+
+  // Inject real SERP data when available
+  if (params.serpContext) {
+    const ctx = params.serpContext;
+    parts.push(``, `## Real Keyword Data (from DataForSEO)`);
+
+    if (ctx.seedKeyword) {
+      const sk = ctx.seedKeyword;
+      parts.push(`Seed keyword "${params.topic}":`);
+      if (sk.volume != null) parts.push(`- Monthly search volume: ${sk.volume.toLocaleString()}`);
+      if (sk.difficulty != null) parts.push(`- Keyword difficulty: ${sk.difficulty}/100`);
+      if (sk.cpc != null) parts.push(`- CPC: $${sk.cpc.toFixed(2)}`);
+    }
+
+    if (ctx.relatedKeywords.length > 0) {
+      parts.push(``, `### Related keywords with real search volume:`);
+      for (const k of ctx.relatedKeywords.slice(0, 25)) {
+        const diff = k.difficulty != null ? `, diff: ${k.difficulty}` : "";
+        parts.push(`- "${k.keyword}" (vol: ${k.volume.toLocaleString()}${diff})`);
+      }
+    }
+
+    if (ctx.topCompetitors.length > 0) {
+      parts.push(``, `### Current top 10 organic results for "${params.topic}":`);
+      for (const r of ctx.topCompetitors) {
+        parts.push(`${r.position}. ${r.title} (${r.domain})`);
+      }
+    }
+
+    if (ctx.serpFeatures.length > 0) {
+      parts.push(``, `### SERP features present: ${ctx.serpFeatures.join(", ")}`);
+    }
+
+    parts.push(
+      ``,
+      `IMPORTANT: Use the real keyword data above to inform your cluster. Prefer keywords with actual search volume. Target keywords should come from or be closely related to the real keyword list.`
+    );
+  }
+
+  // Inject crawled pages when available
+  if (params.crawledPages && params.crawledPages.length > 0) {
+    parts.push(``, `## Existing Pages on ${params.domain} (from site crawl)`);
+    for (const p of params.crawledPages.slice(0, 50)) {
+      parts.push(`- ${p.path}: "${p.title || "No title"}" (${p.wordCount} words${p.h1 ? `, H1: "${p.h1}"` : ""})`);
+    }
+    parts.push(
+      ``,
+      `IMPORTANT: Check if any of your suggested cluster pages already exist on this site. For pages that match existing content, use the same slug/path. Focus new suggestions on genuine gaps not covered by existing pages.`
+    );
+  }
 
   parts.push(
     ``,
@@ -75,13 +129,41 @@ export function clusterGenerationPrompt(params: {
 
 export function scoringPrompt(
   topic: string,
-  nodesJson: string
+  nodesJson: string,
+  realKeywordData?: Map<string, { volume: number; difficulty: number | null }> | null,
+  gscData?: { query: string; impressions: number; clicks: number; position: number }[] | null
 ): string {
-  return [
+  const parts = [
     `You are an expert SEO content strategist. Analyze this content cluster about "${topic}" and provide scoring data and missing node suggestions.`,
     ``,
     `Current cluster structure:`,
     nodesJson,
+  ];
+
+  if (realKeywordData && realKeywordData.size > 0) {
+    parts.push(``, `## Real Keyword Metrics (from DataForSEO)`);
+    for (const [kw, data] of realKeywordData) {
+      const diff = data.difficulty != null ? `, difficulty: ${data.difficulty}/100` : "";
+      parts.push(`- "${kw}": volume ${data.volume.toLocaleString()}${diff}`);
+    }
+    parts.push(
+      ``,
+      `Use these real metrics to inform your opportunity and serpClarity scores. Keywords with high volume and low difficulty should score higher on opportunity.`
+    );
+  }
+
+  if (gscData && gscData.length > 0) {
+    parts.push(``, `## Real Google Search Console Data`);
+    for (const q of gscData.slice(0, 30)) {
+      parts.push(`- "${q.query}": ${q.impressions} impr, ${q.clicks} clicks, pos ${q.position.toFixed(1)}`);
+    }
+    parts.push(
+      ``,
+      `Use GSC data to validate opportunity. Queries with high impressions but low clicks or poor position are high-opportunity targets.`
+    );
+  }
+
+  parts.push(
     ``,
     `For each node (identified by slug), estimate these scoring factors on a 0-100 scale:`,
     `- centrality: how central is this to the overall topic? (pillar should be ~95-100, direct sub-pillars 60-80, support pages 20-50)`,
@@ -111,6 +193,8 @@ export function scoringPrompt(
     `      "parentSlug": "string"`,
     `    }`,
     `  ]`,
-    `}`,
-  ].join("\n");
+    `}`
+  );
+
+  return parts.join("\n");
 }

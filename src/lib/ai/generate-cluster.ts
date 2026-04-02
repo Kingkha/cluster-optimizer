@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { clusterGenerationPrompt } from "./prompts";
 import { extractJSON } from "./parse-response";
+import type { DataSourceContext, CrawledPageData } from "@/lib/data-sources/types";
 
 interface GeneratedNode {
   title: string;
@@ -31,6 +32,8 @@ export async function generateClusterStructure(params: {
   language?: string | null;
   niche?: string | null;
   domain?: string | null;
+  serpContext?: DataSourceContext | null;
+  crawledPages?: CrawledPageData[] | null;
 }): Promise<ClusterResult> {
   const client = new Anthropic();
 

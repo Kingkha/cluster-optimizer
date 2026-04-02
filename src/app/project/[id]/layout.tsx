@@ -25,18 +25,12 @@ export function useProject() {
 
 const statusColors: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800",
+  "fetching-data": "bg-cyan-100 text-cyan-800",
   generating: "bg-blue-100 text-blue-800",
   enriching: "bg-purple-100 text-purple-800",
   ready: "bg-green-100 text-green-800",
   error: "bg-red-100 text-red-800",
 };
-
-const tabs = [
-  { href: "", label: "Cluster Map" },
-  { href: "/publish-order", label: "Publish Order" },
-  { href: "/links", label: "Link Plan" },
-  { href: "/missing", label: "Missing Nodes" },
-];
 
 export default function ProjectLayout({
   children,
@@ -65,9 +59,7 @@ export default function ProjectLayout({
   useEffect(() => {
     if (
       project &&
-      (project.status === "generating" ||
-        project.status === "enriching" ||
-        project.status === "pending")
+      (["pending", "fetching-data", "generating", "enriching"].includes(project.status))
     ) {
       const interval = setInterval(fetchProject, 2000);
       return () => clearInterval(interval);
@@ -144,11 +136,7 @@ export default function ProjectLayout({
                 <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" />
                 <div>
                   <p className="font-medium">
-                    {project.status === "pending" && "Preparing..."}
-                    {project.status === "generating" &&
-                      "Generating cluster structure..."}
-                    {project.status === "enriching" &&
-                      "Scoring and detecting gaps..."}
+                    {({ pending: "Preparing...", "fetching-data": "Fetching keyword & SERP data...", generating: "Generating cluster structure...", enriching: "Scoring and detecting gaps..." } as Record<string, string>)[project.status] || "Processing..."}
                   </p>
                   <p className="text-sm text-muted-foreground">
                     This usually takes 30-60 seconds.
@@ -181,30 +169,44 @@ export default function ProjectLayout({
         )}
 
         {/* Tabs */}
-        {project?.status === "ready" && (
-          <>
-            <nav className="flex gap-1 border-b mb-6">
-              {tabs.map((tab) => {
-                const fullHref = basePath + tab.href;
-                const isActive = pathname === fullHref;
-                return (
-                  <Link
-                    key={tab.href}
-                    href={fullHref}
-                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                      isActive
-                        ? "border-primary text-primary"
-                        : "border-transparent text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {tab.label}
-                  </Link>
-                );
-              })}
-            </nav>
-            {children}
-          </>
-        )}
+        {project?.status === "ready" && (() => {
+          const tabs = [
+            { href: "", label: "Cluster Map" },
+            { href: "/publish-order", label: "Publish Order" },
+            { href: "/links", label: "Link Plan" },
+            { href: "/missing", label: "Missing Nodes" },
+          ];
+          if (project.crawledPages && project.crawledPages.length > 0) {
+            tabs.push({ href: "/crawl", label: "Site Audit" });
+          }
+          if (project.gscQueries && project.gscQueries.length > 0) {
+            tabs.push({ href: "/gsc", label: "Search Performance" });
+          }
+          return (
+            <>
+              <nav className="flex gap-1 border-b mb-6 overflow-x-auto">
+                {tabs.map((tab) => {
+                  const fullHref = basePath + tab.href;
+                  const isActive = pathname === fullHref;
+                  return (
+                    <Link
+                      key={tab.href}
+                      href={fullHref}
+                      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                        isActive
+                          ? "border-primary text-primary"
+                          : "border-transparent text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {tab.label}
+                    </Link>
+                  );
+                })}
+              </nav>
+              {children}
+            </>
+          );
+        })()}
       </div>
     </ProjectContext>
   );

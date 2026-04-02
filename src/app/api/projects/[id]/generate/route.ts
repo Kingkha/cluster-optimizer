@@ -3,8 +3,17 @@ import { prisma } from "@/lib/db";
 import { generateClusterStructure } from "@/lib/ai/generate-cluster";
 import { scoreAndEnrich } from "@/lib/ai/score-and-enrich";
 import { calculatePriorityScore } from "@/lib/scoring";
+import { fetchSerpContext, DataForSEOClient } from "@/lib/data-sources/dataforseo";
+import { crawlSite } from "@/lib/data-sources/site-crawl";
+import { getSearchAnalytics } from "@/lib/data-sources/gsc-client";
+import type { DataSourceContext, CrawledPageData } from "@/lib/data-sources/types";
 
 export const maxDuration = 120;
+
+async function getSetting(key: string): Promise<string | null> {
+  const row = await prisma.appSettings.findUnique({ where: { key } });
+  return row?.value || null;
+}
 
 export async function POST(
   _req: NextRequest,
@@ -21,12 +30,150 @@ export async function POST(
   await prisma.missingNode.deleteMany({ where: { projectId: id } });
   await prisma.linkSuggestion.deleteMany({ where: { projectId: id } });
   await prisma.clusterNode.deleteMany({ where: { projectId: id } });
+  await prisma.serpData.deleteMany({ where: { projectId: id } });
 
   try {
-    // Step 1: Generate cluster structure
+    // ── Step 0: Fetch real data (optional, graceful) ──
     await prisma.project.update({
       where: { id },
-      data: { status: "generating", errorMsg: null },
+      data: { status: "fetching-data", errorMsg: null },
+    });
+
+    let serpContext: DataSourceContext | null = null;
+    let crawledPages: CrawledPageData[] | null = null;
+    let gscQueryRows: { query: string; impressions: number; clicks: number; ctr: number; position: number }[] | null = null;
+
+    // DataForSEO
+    const dfLogin = process.env.DATAFORSEO_LOGIN || await getSetting("dataforseo_login");
+    const dfPassword = process.env.DATAFORSEO_PASSWORD || await getSetting("dataforseo_password");
+
+    if (dfLogin && dfPassword) {
+      try {
+        serpContext = await fetchSerpContext(
+          project.topic,
+          dfLogin,
+          dfPassword,
+          project.country
+        );
+
+        // Cache SERP data
+        if (serpContext.seedKeyword) {
+          await prisma.serpData.upsert({
+            where: { projectId_keyword: { projectId: id, keyword: project.topic } },
+            create: {
+              projectId: id,
+              keyword: project.topic,
+              volume: serpContext.seedKeyword.volume,
+              difficulty: serpContext.seedKeyword.difficulty,
+              cpc: serpContext.seedKeyword.cpc,
+              competition: serpContext.seedKeyword.competition,
+              intent: serpContext.seedKeyword.intent,
+              serpFeatures: JSON.stringify(serpContext.serpFeatures),
+              topResults: JSON.stringify(serpContext.topCompetitors),
+            },
+            update: {
+              volume: serpContext.seedKeyword.volume,
+              difficulty: serpContext.seedKeyword.difficulty,
+              cpc: serpContext.seedKeyword.cpc,
+              serpFeatures: JSON.stringify(serpContext.serpFeatures),
+              topResults: JSON.stringify(serpContext.topCompetitors),
+              fetchedAt: new Date(),
+            },
+          });
+        }
+      } catch (e) {
+        console.warn("DataForSEO fetch failed, continuing with AI-only:", e);
+      }
+    }
+
+    // Site crawl (if domain provided)
+    if (project.domain) {
+      try {
+        const existing = await prisma.crawledPage.count({ where: { projectId: id } });
+        if (existing === 0) {
+          crawledPages = await crawlSite(project.domain, 50);
+          for (const page of crawledPages) {
+            await prisma.crawledPage.create({
+              data: {
+                projectId: id,
+                url: page.url,
+                path: page.path,
+                title: page.title,
+                metaDescription: page.metaDescription,
+                h1: page.h1,
+                headings: JSON.stringify(page.headings),
+                wordCount: page.wordCount,
+              },
+            });
+          }
+          await prisma.project.update({
+            where: { id },
+            data: { crawlStatus: "crawled" },
+          });
+        } else {
+          // Use cached crawled pages
+          const cached = await prisma.crawledPage.findMany({ where: { projectId: id } });
+          crawledPages = cached.map((p) => ({
+            url: p.url,
+            path: p.path,
+            title: p.title,
+            metaDescription: p.metaDescription,
+            h1: p.h1,
+            headings: p.headings ? JSON.parse(p.headings) : [],
+            wordCount: p.wordCount || 0,
+          }));
+        }
+      } catch (e) {
+        console.warn("Site crawl failed, continuing without:", e);
+      }
+    }
+
+    // GSC data (if connection exists for this domain)
+    if (project.domain) {
+      try {
+        const domainClean = project.domain.replace(/^https?:\/\//, "").replace(/\/$/, "");
+        const gscConn = await prisma.gscConnection.findFirst({
+          where: {
+            OR: [
+              { propertyUrl: `sc-domain:${domainClean}` },
+              { propertyUrl: `https://${domainClean}/` },
+              { propertyUrl: { contains: domainClean } },
+            ],
+          },
+        });
+
+        if (gscConn) {
+          gscQueryRows = await getSearchAnalytics(
+            gscConn.accessToken,
+            gscConn.refreshToken,
+            gscConn.propertyUrl,
+            28
+          );
+
+          // Cache GSC data
+          await prisma.gscQueryData.deleteMany({ where: { projectId: id } });
+          for (const q of gscQueryRows.slice(0, 500)) {
+            await prisma.gscQueryData.create({
+              data: {
+                projectId: id,
+                query: q.query,
+                impressions: q.impressions,
+                clicks: q.clicks,
+                ctr: q.ctr,
+                position: q.position,
+              },
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("GSC fetch failed, continuing without:", e);
+      }
+    }
+
+    // ── Step 1: Generate cluster structure ──
+    await prisma.project.update({
+      where: { id },
+      data: { status: "generating" },
     });
 
     const cluster = await generateClusterStructure({
@@ -35,12 +182,13 @@ export async function POST(
       language: project.language,
       niche: project.niche,
       domain: project.domain,
+      serpContext,
+      crawledPages,
     });
 
     // Save nodes
     const slugToId = new Map<string, string>();
 
-    // First pass: create all nodes without parent references
     for (let i = 0; i < cluster.nodes.length; i++) {
       const n = cluster.nodes[i];
       const node = await prisma.clusterNode.create({
@@ -59,7 +207,7 @@ export async function POST(
       slugToId.set(n.slug, node.id);
     }
 
-    // Second pass: set parent references
+    // Set parent references
     for (const n of cluster.nodes) {
       if (n.parentSlug && slugToId.has(n.parentSlug)) {
         await prisma.clusterNode.update({
@@ -87,7 +235,54 @@ export async function POST(
       }
     }
 
-    // Step 2: Score and find missing nodes
+    // Fetch real keyword data for generated target keywords
+    let realKeywordData: Map<string, { volume: number; difficulty: number | null }> | null = null;
+
+    if (dfLogin && dfPassword) {
+      try {
+        const targetKeywords = cluster.nodes
+          .map((n) => n.targetKeyword)
+          .filter((kw): kw is string => Boolean(kw));
+
+        if (targetKeywords.length > 0) {
+          const client = new DataForSEOClient(dfLogin, dfPassword);
+          const kwData = await client.getKeywordData(targetKeywords);
+
+          realKeywordData = new Map();
+          for (const [kw, data] of kwData) {
+            if (data.volume != null) {
+              realKeywordData.set(kw, {
+                volume: data.volume,
+                difficulty: data.difficulty,
+              });
+            }
+          }
+
+          // Save real metrics to nodes
+          for (const n of cluster.nodes) {
+            if (n.targetKeyword && kwData.has(n.targetKeyword)) {
+              const kd = kwData.get(n.targetKeyword)!;
+              const nodeId = slugToId.get(n.slug);
+              if (nodeId) {
+                await prisma.clusterNode.update({
+                  where: { id: nodeId },
+                  data: {
+                    realVolume: kd.volume,
+                    realDifficulty: kd.difficulty,
+                    realCpc: kd.cpc,
+                    dataSource: "dataforseo",
+                  },
+                });
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("DataForSEO keyword batch failed:", e);
+      }
+    }
+
+    // ── Step 2: Score and find missing nodes ──
     await prisma.project.update({
       where: { id },
       data: { status: "enriching" },
@@ -100,7 +295,9 @@ export async function POST(
         slug: n.slug,
         role: n.role,
         parentSlug: n.parentSlug,
-      }))
+      })),
+      realKeywordData,
+      gscQueryRows
     );
 
     // Apply scores
@@ -122,7 +319,7 @@ export async function POST(
       }
     }
 
-    // Set publish order based on priority score
+    // Set publish order by priority
     const allNodes = await prisma.clusterNode.findMany({
       where: { projectId: id },
       orderBy: { priorityScore: "desc" },

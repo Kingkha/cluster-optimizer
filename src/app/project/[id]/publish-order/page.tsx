@@ -35,10 +35,17 @@ export default function PublishOrderPage() {
     (a, b) => b.priorityScore - a.priorityScore
   );
 
+  const hasRealData = sorted.some((n) => n.realVolume != null);
+
   return (
     <div>
       <h2 className="text-lg font-semibold mb-4">
         Publish Order ({sorted.length} pages)
+        {hasRealData && (
+          <span className="text-xs font-normal text-muted-foreground ml-2">
+            Includes real DataForSEO metrics
+          </span>
+        )}
       </h2>
       <div className="rounded-lg border overflow-x-auto">
         <Table>
@@ -48,6 +55,13 @@ export default function PublishOrderPage() {
               <TableHead>Title</TableHead>
               <TableHead className="w-28">Role</TableHead>
               <TableHead className="w-20 text-right">Priority</TableHead>
+              {hasRealData && (
+                <>
+                  <TableHead className="w-24 text-right">Volume</TableHead>
+                  <TableHead className="w-20 text-right">Diff.</TableHead>
+                  <TableHead className="w-20 text-right">CPC</TableHead>
+                </>
+              )}
               <TableHead className="w-20 text-right">Central.</TableHead>
               <TableHead className="w-20 text-right">Support</TableHead>
               <TableHead className="w-20 text-right">Opport.</TableHead>
@@ -77,6 +91,39 @@ export default function PublishOrderPage() {
                 <TableCell className="text-right font-semibold">
                   {node.priorityScore}
                 </TableCell>
+                {hasRealData && (
+                  <>
+                    <TableCell className="text-right">
+                      {node.realVolume != null ? (
+                        <span className="font-medium">
+                          {node.realVolume.toLocaleString()}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {node.realDifficulty != null ? (
+                        <span className={
+                          node.realDifficulty < 30
+                            ? "text-green-600"
+                            : node.realDifficulty < 60
+                            ? "text-yellow-600"
+                            : "text-red-600"
+                        }>
+                          {node.realDifficulty.toFixed(0)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground">
+                      {node.realCpc != null
+                        ? `$${node.realCpc.toFixed(2)}`
+                        : "-"}
+                    </TableCell>
+                  </>
+                )}
                 <TableCell className="text-right text-muted-foreground">
                   {node.centrality}
                 </TableCell>
@@ -94,6 +141,11 @@ export default function PublishOrderPage() {
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
                   {node.targetKeyword || "-"}
+                  {node.dataSource && (
+                    <Badge variant="outline" className="ml-1 text-[10px] px-1 py-0">
+                      {node.dataSource}
+                    </Badge>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

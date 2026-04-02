@@ -19,9 +19,14 @@ model Project {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  crawlStatus  String?  // null | crawling | crawled | crawl-error
+
   nodes        ClusterNode[]
   links        LinkSuggestion[]
   missingNodes MissingNode[]
+  serpData     SerpData[]
+  crawledPages CrawledPage[]
+  gscQueries   GscQueryData[]
 }
 
 model ClusterNode {
@@ -40,9 +45,13 @@ model ClusterNode {
   opportunity   Float    @default(0)
   ease          Float    @default(0)
   serpClarity   Float    @default(0)
-  targetKeyword String?
-  searchIntent  String?  // informational | commercial | transactional | navigational
-  notes         String?
+  targetKeyword  String?
+  searchIntent   String?  // informational | commercial | transactional | navigational
+  notes          String?
+  realVolume     Int?
+  realDifficulty Float?
+  realCpc        Float?
+  dataSource     String?  // dataforseo | gsc | ai-estimated
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -83,4 +92,73 @@ model MissingNode {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
+}
+
+model SerpData {
+  id           String   @id @default(cuid())
+  projectId    String
+  keyword      String
+  volume       Int?
+  difficulty   Float?
+  cpc          Float?
+  competition  Float?
+  intent       String?
+  serpFeatures String?  // JSON string
+  topResults   String?  // JSON string
+  fetchedAt    DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, keyword])
+  @@index([projectId])
+}
+
+model CrawledPage {
+  id              String   @id @default(cuid())
+  projectId       String
+  url             String
+  path            String
+  title           String?
+  metaDescription String?
+  h1              String?
+  headings        String?  // JSON array of h2s
+  wordCount       Int?
+  matchedNodeId   String?
+  crawledAt       DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, url])
+  @@index([projectId])
+}
+
+model GscConnection {
+  id           String   @id @default(cuid())
+  propertyUrl  String   @unique
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+}
+
+model GscQueryData {
+  id          String   @id @default(cuid())
+  projectId   String
+  query       String
+  impressions Int
+  clicks      Int
+  ctr         Float
+  position    Float
+  fetchedAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, query])
+  @@index([projectId])
+}
+
+model AppSettings {
+  id    String @id @default("singleton")
+  key   String @unique
+  value String
 }
