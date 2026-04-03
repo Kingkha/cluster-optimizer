@@ -187,6 +187,9 @@ export default function ProjectLayout({
             { href: "/links", label: "Link Plan" },
             { href: "/missing", label: "Missing Nodes" },
           ];
+          if (project.serpData && project.serpData.length > 0) {
+            tabs.push({ href: "/serp", label: "SERP Analysis" });
+          }
           if (project.crawledPages && project.crawledPages.length > 0) {
             tabs.push({ href: "/crawl", label: "Site Audit" });
           }

@@ -22,6 +22,7 @@ export interface ProjectWithRelations {
   missingNodes: MissingNodeData[];
   crawledPages?: CrawledPageRecord[];
   gscQueries?: GscQueryRecord[];
+  serpData?: SerpDataRecord[];
 }
 
 export interface CrawledPageRecord {
@@ -41,6 +42,19 @@ export interface GscQueryRecord {
   clicks: number;
   ctr: number;
   position: number;
+}
+
+export interface SerpDataRecord {
+  id: string;
+  keyword: string;
+  volume: number | null;
+  difficulty: number | null;
+  cpc: number | null;
+  competition: number | null;
+  intent: string | null;
+  serpFeatures: string | null; // JSON string
+  topResults: string | null; // JSON string
+  fetchedAt: string;
 }
 
 export interface ClusterNodeData {

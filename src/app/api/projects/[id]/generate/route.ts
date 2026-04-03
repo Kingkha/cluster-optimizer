@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { devAuth } from "@/lib/dev-auth";
 import { generateClusterStructure } from "@/lib/ai/generate-cluster";
+import { groupKeywordsBySubtopic, type KeywordGroup } from "@/lib/ai/group-keywords";
 import { scoreAndEnrich } from "@/lib/ai/score-and-enrich";
 import { calculatePriorityScore } from "@/lib/scoring";
 import { fetchSerpContext, DataForSEOClient } from "@/lib/data-sources/dataforseo";
@@ -181,6 +182,19 @@ export async function POST(
       }
     }
 
+    // ── Step 0.5: Group related keywords by subtopic ──
+    let keywordGroups: KeywordGroup[] | null = null;
+    if (serpContext && serpContext.relatedKeywords.length > 0) {
+      try {
+        keywordGroups = await groupKeywordsBySubtopic(
+          project.topic,
+          serpContext.relatedKeywords
+        );
+      } catch (e) {
+        console.warn("Keyword grouping failed, continuing with flat list:", e);
+      }
+    }
+
     // ── Step 1: Generate cluster structure ──
     await prisma.project.update({
       where: { id },
@@ -195,6 +209,7 @@ export async function POST(
       domain: project.domain,
       serpContext,
       crawledPages,
+      keywordGroups,
     });
 
     // Save nodes

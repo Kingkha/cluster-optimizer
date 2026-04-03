@@ -1,4 +1,44 @@
 import type { DataSourceContext, CrawledPageData } from "@/lib/data-sources/types";
+import type { KeywordGroup } from "./group-keywords";
+
+/**
+ * Determine ideal cluster size based on available data signals.
+ *
+ * Signals used (in priority order):
+ * 1. Number of keyword groups — each group needs at least 1-2 pages
+ * 2. Total unique related keywords — more keywords = broader topic
+ * 3. Seed keyword volume — higher volume usually = broader topic
+ *
+ * Returns { min, max, subPillarRange } for the prompt.
+ */
+function estimateClusterSize(params: {
+  keywordGroups?: KeywordGroup[] | null;
+  serpContext?: DataSourceContext | null;
+}): { min: number; max: number; subPillars: string } {
+  const groups = params.keywordGroups?.length ?? 0;
+  const relatedCount = params.serpContext?.relatedKeywords?.length ?? 0;
+  const seedVolume = params.serpContext?.seedKeyword?.volume ?? 0;
+
+  // If we have grouped keywords, use them as primary signal
+  if (groups > 0) {
+    if (groups <= 3) return { min: 5, max: 8, subPillars: "2-3" };
+    if (groups <= 5) return { min: 8, max: 14, subPillars: "3-4" };
+    if (groups <= 7) return { min: 12, max: 18, subPillars: "4-5" };
+    return { min: 15, max: 20, subPillars: "5-7" };
+  }
+
+  // Fallback: use related keyword count + volume
+  if (relatedCount <= 5 || seedVolume < 1000) {
+    return { min: 5, max: 8, subPillars: "2-3" };
+  }
+  if (relatedCount <= 15 || seedVolume < 10000) {
+    return { min: 8, max: 14, subPillars: "3-4" };
+  }
+  if (relatedCount <= 25 || seedVolume < 50000) {
+    return { min: 12, max: 18, subPillars: "4-5" };
+  }
+  return { min: 15, max: 20, subPillars: "5-7" };
+}
 
 export function clusterGenerationPrompt(params: {
   topic: string;
@@ -8,6 +48,7 @@ export function clusterGenerationPrompt(params: {
   domain?: string | null;
   serpContext?: DataSourceContext | null;
   crawledPages?: CrawledPageData[] | null;
+  keywordGroups?: KeywordGroup[] | null;
 }): string {
   const parts = [
     `You are an expert SEO content strategist. Given a seed topic, generate a complete content cluster structure.`,
@@ -34,7 +75,17 @@ export function clusterGenerationPrompt(params: {
       if (sk.cpc != null) parts.push(`- CPC: $${sk.cpc.toFixed(2)}`);
     }
 
-    if (ctx.relatedKeywords.length > 0) {
+    if (params.keywordGroups && params.keywordGroups.length > 0) {
+      parts.push(``, `### Related keywords grouped by subtopic:`);
+      for (const group of params.keywordGroups) {
+        const totalVol = group.keywords.reduce((sum, k) => sum + k.volume, 0);
+        parts.push(``, `**${group.group}** (total volume: ${totalVol.toLocaleString()}):`);
+        for (const k of group.keywords) {
+          const diff = k.difficulty != null ? `, diff: ${k.difficulty}` : "";
+          parts.push(`  - "${k.keyword}" (vol: ${k.volume.toLocaleString()}${diff})`);
+        }
+      }
+    } else if (ctx.relatedKeywords.length > 0) {
       parts.push(``, `### Related keywords with real search volume:`);
       for (const k of ctx.relatedKeywords.slice(0, 25)) {
         const diff = k.difficulty != null ? `, diff: ${k.difficulty}` : "";
@@ -53,10 +104,17 @@ export function clusterGenerationPrompt(params: {
       parts.push(``, `### SERP features present: ${ctx.serpFeatures.join(", ")}`);
     }
 
-    parts.push(
-      ``,
-      `IMPORTANT: Use the real keyword data above to inform your cluster. Prefer keywords with actual search volume. Target keywords should come from or be closely related to the real keyword list.`
-    );
+    if (params.keywordGroups && params.keywordGroups.length > 0) {
+      parts.push(
+        ``,
+        `IMPORTANT: Your cluster MUST cover every keyword subtopic group listed above. Each group should map to at least one node in the cluster. Use the real keywords as target keywords — do not invent keywords when real ones with search volume exist. Prioritize groups with higher total search volume.`
+      );
+    } else {
+      parts.push(
+        ``,
+        `IMPORTANT: Use the real keyword data above to inform your cluster. Prefer keywords with actual search volume. Target keywords should come from or be closely related to the real keyword list.`
+      );
+    }
   }
 
   // Inject crawled pages when available
@@ -71,9 +129,14 @@ export function clusterGenerationPrompt(params: {
     );
   }
 
+  const clusterSize = estimateClusterSize({
+    keywordGroups: params.keywordGroups,
+    serpContext: params.serpContext,
+  });
+
   parts.push(
     ``,
-    `Generate a content cluster with 12-20 pages. For each page provide:`,
+    `Generate a content cluster with ${clusterSize.min}-${clusterSize.max} pages. For each page provide:`,
     `- title: SEO-optimized page title`,
     `- slug: URL-friendly slug (lowercase, hyphens, no special chars)`,
     `- role: one of [pillar, sub-pillar, support, comparison, list, informational]`,
@@ -84,7 +147,7 @@ export function clusterGenerationPrompt(params: {
     ``,
     `Rules:`,
     `- Exactly 1 pillar page`,
-    `- 2-4 sub-pillar pages that cover major subtopics`,
+    `- ${clusterSize.subPillars} sub-pillar pages that cover major subtopics`,
     `- Remaining pages are support/comparison/list/informational`,
     `- Every non-pillar page must have a parentSlug pointing to its parent`,
     `- Sub-pillars point to the pillar; support pages point to their sub-pillar or pillar`,

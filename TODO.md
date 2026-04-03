@@ -28,7 +28,15 @@
 - [ ] Waitlist form (email capture)
 - [ ] Post on Indie Hackers, SEO Twitter, r/SEO with real before/after data
 
-### 5. Post-MVP features (from PRD Phase 2-4)
+### 5. Competitor SERP Intelligence (research)
+- [ ] Use DataForSEO On-Page API to extract H2/H3 headings from top 10 ranking pages
+- [ ] Map competitor subtopics → identify angles our cluster should cover
+- [ ] Use DataForSEO "Related Pages" to find sibling content on competitor domains
+- [ ] Feed competitor topical structure into Claude for gap-aware cluster generation
+- [ ] Goal: clusters that match or exceed competitor topical coverage
+- [ ] Estimate: ~$0.10-0.15 extra per cluster, adds ~10s to pipeline
+
+### 6. Post-MVP features (from PRD Phase 2-4)
 - [ ] Import existing URLs and map into cluster nodes
 - [ ] Detect weak/thin nodes via content analysis
 - [ ] Cluster health score (0-100)
