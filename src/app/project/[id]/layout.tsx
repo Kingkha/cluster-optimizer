@@ -152,19 +152,30 @@ export default function ProjectLayout({
             <p className="text-sm text-muted-foreground mt-1">
               {project.errorMsg}
             </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2"
-              onClick={() => {
-                fetch(`/api/projects/${id}/generate`, { method: "POST" });
-                setProject((p) =>
-                  p ? { ...p, status: "generating", errorMsg: null } : p
-                );
-              }}
-            >
-              Retry
-            </Button>
+            <div className="flex gap-2 mt-2">
+              {project.errorMsg?.includes("credits") ? (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => (window.location.href = "/credits")}
+                >
+                  Get Credits
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    fetch(`/api/projects/${id}/generate`, { method: "POST" });
+                    setProject((p) =>
+                      p ? { ...p, status: "generating", errorMsg: null } : p
+                    );
+                  }}
+                >
+                  Retry
+                </Button>
+              )}
+            </div>
           </div>
         )}
 

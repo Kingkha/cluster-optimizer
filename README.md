@@ -63,6 +63,8 @@ npx prisma generate   # generate Prisma client
 npx prisma db push    # create tables
 ```
 
+> **Note:** This project uses Prisma 7. The `DATABASE_URL` is read from `.env` via `prisma.config.ts` — no `url =` needed in `schema.prisma`.
+
 ### 5. Run
 
 ```bash

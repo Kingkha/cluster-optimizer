@@ -5,7 +5,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -15,11 +14,27 @@ model User {
   emailVerified DateTime?
   image         String?
   createdAt     DateTime  @default(now())
+  credits       Int       @default(5)
 
-  accounts   Account[]
-  sessions   Session[]
-  projects   Project[]
-  gscConnections GscConnection[]
+  accounts         Account[]
+  sessions         Session[]
+  projects         Project[]
+  gscConnections   GscConnection[]
+  creditTransactions CreditTransaction[]
+}
+
+model CreditTransaction {
+  id          String   @id @default(cuid())
+  userId      String
+  amount      Int
+  balance     Int
+  type        String   // welcome | use | purchase | grant
+  description String
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Account {

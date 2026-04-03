@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { auth, signOut } from "@/auth";
+import { prisma } from "@/lib/db";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -25,6 +26,14 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
+  let credits: number | null = null;
+  if (session?.user?.id) {
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { credits: true },
+    });
+    credits = user?.credits ?? null;
+  }
 
   return (
     <html
@@ -39,6 +48,14 @@ export default async function RootLayout({
           <div className="flex items-center gap-3">
             {session?.user && (
               <>
+                <a
+                  href="/credits"
+                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium hover:bg-accent transition-colors"
+                >
+                  <span className={credits === 0 ? "text-destructive" : "text-foreground"}>
+                    {credits ?? 0} credits
+                  </span>
+                </a>
                 <a
                   href="/settings"
                   className="text-sm text-muted-foreground hover:text-foreground transition-colors"

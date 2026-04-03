@@ -25,9 +25,21 @@ export async function POST(
 
   const { id } = await params;
 
-  const project = await prisma.project.findUnique({ where: { id, userId: session.user.id } });
+  const [project, user] = await Promise.all([
+    prisma.project.findUnique({ where: { id, userId: session.user.id } }),
+    prisma.user.findUnique({ where: { id: session.user.id }, select: { credits: true } }),
+  ]);
+
   if (!project) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (!user || user.credits < 1) {
+    await prisma.project.update({
+      where: { id },
+      data: { status: "error", errorMsg: "Insufficient credits. Purchase more to continue." },
+    });
+    return NextResponse.json({ error: "Insufficient credits", code: "NO_CREDITS" }, { status: 402 });
   }
 
   // Clear existing data if regenerating
@@ -353,6 +365,21 @@ export async function POST(
     await prisma.project.update({
       where: { id },
       data: { status: "ready" },
+    });
+
+    // Deduct 1 credit
+    const updated = await prisma.user.update({
+      where: { id: session.user.id },
+      data: { credits: { decrement: 1 } },
+    });
+    await prisma.creditTransaction.create({
+      data: {
+        userId: session.user.id,
+        amount: -1,
+        balance: updated.credits,
+        type: "use",
+        description: `Generated cluster: ${project.topic}`,
+      },
     });
 
     return NextResponse.json({ ok: true, status: "ready" });
