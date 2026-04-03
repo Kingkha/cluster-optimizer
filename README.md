@@ -2,12 +2,25 @@
 
 Turn one seed topic into a structured, actionable content cluster — with page roles, publish order, internal link plans, and missing node detection. Powered by Claude AI.
 
+## Features
+
+- **AI cluster generation** — Claude Sonnet generates 12–20 nodes with roles, target keywords, search intent, and hierarchy
+- **Publish order** — nodes ranked by priority score (centrality, opportunity, ease, SERP clarity)
+- **Internal link plan** — contextual link suggestions with anchor text and context
+- **Missing node detection** — gaps in your cluster identified by a second AI pass
+- **Multi-user SaaS** — each user has their own projects and data, protected by Google sign-in
+- **Credit system** — 5 free credits on signup; 1 credit per generation
+- **Google Search Console** — connect your GSC to pull real impressions, clicks, and position data
+- **DataForSEO** — optional real keyword volume, difficulty, and CPC data
+- **Site crawl** — optional crawl of your domain to match existing content to cluster nodes
+- **Export** — download cluster as Markdown or CSV
+
 ## Stack
 
 - **Next.js 16** (App Router, TypeScript)
 - **Tailwind CSS 4 + shadcn/ui**
 - **PostgreSQL** via Prisma 7 — Neon in production, local Postgres in dev
-- **NextAuth v5** — Google sign-in
+- **NextAuth v5** — Google sign-in with PrismaAdapter
 - **@anthropic-ai/sdk** — Claude Sonnet 4
 
 ---
@@ -63,7 +76,7 @@ npx prisma generate   # generate Prisma client
 npx prisma db push    # create tables
 ```
 
-> **Note:** This project uses Prisma 7. The `DATABASE_URL` is read from `.env` via `prisma.config.ts` — no `url =` needed in `schema.prisma`.
+> **Note:** This project uses Prisma 7. `DATABASE_URL` is read from `.env` via `prisma.config.ts` — no `url =` field needed in `schema.prisma`.
 
 ### 5. Run
 
@@ -92,7 +105,7 @@ Create a DB at [neon.tech](https://neon.tech), copy the connection string, and a
 
 ### 2. Push schema to Neon
 
-With the Neon `DATABASE_URL` in your local `.env`:
+With the Neon `DATABASE_URL` set in your local `.env`:
 
 ```bash
 npx prisma db push
@@ -131,6 +144,26 @@ Or push to `main` if you have auto-deploy enabled.
 
 ---
 
+## Credit System
+
+New users receive **5 free credits** on first sign-in. Each cluster generation costs **1 credit**.
+
+- Credit balance is shown in the header and links to `/credits`
+- The `/credits` page shows current balance, pricing plans, and full transaction history
+- Generating with 0 credits sets the project to an error state with a prompt to get more credits
+- Credit purchasing is not yet implemented — contact for early access
+
+To grant credits manually (via Prisma Studio or SQL):
+
+```sql
+UPDATE "User" SET credits = credits + 10 WHERE email = 'user@example.com';
+
+INSERT INTO "CreditTransaction" (id, "userId", amount, balance, type, description, "createdAt")
+VALUES (gen_random_uuid(), '<userId>', 10, <new_balance>, 'grant', 'Manual top-up', now());
+```
+
+---
+
 ## Optional: DataForSEO
 
 Not required — the app works without it (falls back to AI-estimated keyword data). To enable real volume, difficulty, and CPC data:
@@ -138,6 +171,17 @@ Not required — the app works without it (falls back to AI-estimated keyword da
 1. Sign up at [dataforseo.com](https://dataforseo.com)
 2. Log into the app → **Settings** → enter your DataForSEO login (email) and password
 3. Credentials are stored in the database and used automatically on next generation
+
+---
+
+## Optional: Google Search Console
+
+Connect GSC to pull real impressions, clicks, CTR, and position data for your domain:
+
+1. Log into the app → **Settings** → click **Connect Google Search Console**
+2. Authorize access — all your GSC properties are imported automatically
+3. When generating a cluster with a matching domain, GSC query data is included in the AI context
+4. Manage or disconnect properties any time from **Settings**
 
 ---
 
