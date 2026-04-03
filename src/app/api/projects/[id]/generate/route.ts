@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { auth } from "@/auth";
 import { generateClusterStructure } from "@/lib/ai/generate-cluster";
 import { scoreAndEnrich } from "@/lib/ai/score-and-enrich";
 import { calculatePriorityScore } from "@/lib/scoring";
@@ -8,7 +9,7 @@ import { crawlSite } from "@/lib/data-sources/site-crawl";
 import { getSearchAnalytics } from "@/lib/data-sources/gsc-client";
 import type { DataSourceContext, CrawledPageData } from "@/lib/data-sources/types";
 
-export const maxDuration = 120;
+export const maxDuration = 60; // Vercel Pro max; upgrade to Fluid Compute for longer
 
 async function getSetting(key: string): Promise<string | null> {
   const row = await prisma.appSettings.findUnique({ where: { key } });
@@ -19,9 +20,12 @@ export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const { id } = await params;
 
-  const project = await prisma.project.findUnique({ where: { id } });
+  const project = await prisma.project.findUnique({ where: { id, userId: session.user.id } });
   if (!project) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

@@ -2,13 +2,19 @@
 
 ## What This Project Is
 
-Cluster Optimizer is a SaaS MVP that turns one seed topic into a structured, actionable content cluster. It generates page roles, publish order, internal link plans, and missing node detection — all powered by Claude AI.
+Cluster Optimizer is a **SaaS product** that turns one seed topic into a structured, actionable content cluster. It generates page roles, publish order, internal link plans, and missing node detection — all powered by Claude AI.
+
+### SaaS Model
+- **Multi-user**: users sign up, connect their own Google Search Console via OAuth, and manage their own projects
+- **App-level OAuth**: the operator (us) registers one Google OAuth app; users just click "Connect GSC" — no credentials to enter
+- **Billing**: planned via Stripe (not yet implemented)
+- **Auth**: planned via NextAuth or Clerk (not yet implemented — currently single-user/open)
 
 ## Tech Stack
 
 - **Next.js 16** (App Router, TypeScript)
 - **Tailwind CSS 4 + shadcn/ui** — component library in `src/components/ui/`
-- **SQLite** via Prisma 7 + `@prisma/adapter-libsql`
+- **PostgreSQL** via Prisma 7 + `@prisma/adapter-pg` — Neon DB in production, local Postgres in dev
 - **@anthropic-ai/sdk** — Claude Sonnet 4 for AI generation
 - **Sonner** — toast notifications
 
@@ -52,7 +58,7 @@ src/
 
 ## Database Schema (Prisma + SQLite)
 
-4 models defined in `prisma/schema.prisma`:
+Models defined in `prisma/schema.prisma` (PostgreSQL via Neon):
 
 - **Project** — seed topic + metadata + status (`pending | generating | enriching | ready | error`)
 - **ClusterNode** — page in the cluster with role, scores, hierarchy (self-referential `parentId`)
@@ -108,9 +114,38 @@ npm run dev                 # Start at http://localhost:3000
 ### Environment Variables (`.env`)
 
 ```
-DATABASE_URL="file:./dev.db"
+# Local dev — local Postgres or Neon dev branch
+DATABASE_URL="postgresql://user:password@localhost:5432/cluster_optimizer"
+
+# Production — Neon connection string (set via Vercel <-> Neon integration)
+# DATABASE_URL="postgresql://..."
+
 ANTHROPIC_API_KEY=sk-ant-...
+
+# Google OAuth — set once by the operator; users just click "Connect GSC"
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/gsc/callback   # change to prod URL on deploy
 ```
+
+## Deploying to Vercel
+
+### Prerequisites
+- **Vercel Pro** ($20/mo) — required because the AI generation route needs up to 60s (Hobby is 10s max)
+- **Turso** (free tier) — hosted SQLite; SQLite file doesn't persist on Vercel's serverless functions
+- User-facing Stripe billing is **not yet implemented** (planned)
+
+### Steps
+1. In Vercel dashboard → Storage → **Connect Database** → create a Neon Postgres DB — this auto-sets `DATABASE_URL` in your project env vars
+2. Push schema: `npx prisma db push` (with the Neon `DATABASE_URL` in your local `.env`)
+3. Set remaining Vercel env vars: `ANTHROPIC_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` (`https://your-app.vercel.app/api/auth/gsc/callback`)
+4. Add the production redirect URI to your Google OAuth app's authorized redirect URIs
+5. Deploy: `vercel --prod`
+
+The build script (`prisma generate && next build`) auto-generates the Prisma client on Vercel.
+
+### Local dev with Postgres
+Either run a local Postgres instance, or create a Neon **dev branch** and use its connection string as `DATABASE_URL` in `.env`.
 
 The SQLite database file lives at project root (`dev.db`), not inside `prisma/`.
 

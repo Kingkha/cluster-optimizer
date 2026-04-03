@@ -4,11 +4,63 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+
+  accounts   Account[]
+  sessions   Session[]
+  projects   Project[]
+  gscConnections GscConnection[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
 }
 
 model Project {
   id        String   @id @default(cuid())
+  userId    String
   topic     String
   country   String?
   language  String?  @default("en")
@@ -21,12 +73,15 @@ model Project {
 
   crawlStatus  String?  // null | crawling | crawled | crawl-error
 
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   nodes        ClusterNode[]
   links        LinkSuggestion[]
   missingNodes MissingNode[]
   serpData     SerpData[]
   crawledPages CrawledPage[]
   gscQueries   GscQueryData[]
+
+  @@index([userId])
 }
 
 model ClusterNode {
@@ -134,11 +189,17 @@ model CrawledPage {
 
 model GscConnection {
   id           String   @id @default(cuid())
-  propertyUrl  String   @unique
+  userId       String
+  propertyUrl  String
   accessToken  String
   refreshToken String
   expiresAt    DateTime
   createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, propertyUrl])
+  @@index([userId])
 }
 
 model GscQueryData {

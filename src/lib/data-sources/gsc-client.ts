@@ -1,15 +1,15 @@
 import { google } from "googleapis";
 
-export function getOAuth2Client() {
+export function getOAuth2Client(clientId?: string, clientSecret?: string) {
   return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
+    clientId || process.env.GOOGLE_CLIENT_ID,
+    clientSecret || process.env.GOOGLE_CLIENT_SECRET,
     process.env.GOOGLE_REDIRECT_URI || "http://localhost:3000/api/auth/gsc/callback"
   );
 }
 
-export function getAuthUrl(): string {
-  const client = getOAuth2Client();
+export function getAuthUrl(clientId?: string, clientSecret?: string): string {
+  const client = getOAuth2Client(clientId, clientSecret);
   return client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
@@ -17,8 +17,8 @@ export function getAuthUrl(): string {
   });
 }
 
-export async function exchangeCode(code: string) {
-  const client = getOAuth2Client();
+export async function exchangeCode(code: string, clientId?: string, clientSecret?: string) {
+  const client = getOAuth2Client(clientId, clientSecret);
   const { tokens } = await client.getToken(code);
   return tokens;
 }

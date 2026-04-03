@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { auth } from "@/auth";
 import { exchangeCode, listProperties } from "@/lib/data-sources/gsc-client";
 
 export async function GET(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.redirect(new URL("/login", req.url));
+  }
+
   const code = req.nextUrl.searchParams.get("code");
 
   if (!code) {
@@ -10,20 +16,23 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const tokens = await exchangeCode(code);
+    const tokens = await exchangeCode(
+      code,
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET
+    );
 
     if (!tokens.access_token || !tokens.refresh_token) {
       return NextResponse.redirect(new URL("/settings?error=no_tokens", req.url));
     }
 
-    // Get list of properties
     const properties = await listProperties(tokens.access_token, tokens.refresh_token);
 
-    // Save connection for each property
     for (const propertyUrl of properties) {
       await prisma.gscConnection.upsert({
-        where: { propertyUrl },
+        where: { userId_propertyUrl: { userId: session.user.id, propertyUrl } },
         create: {
+          userId: session.user.id,
           propertyUrl,
           accessToken: tokens.access_token,
           refreshToken: tokens.refresh_token,
