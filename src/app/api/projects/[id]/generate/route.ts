@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { auth } from "@/auth";
+import { devAuth } from "@/lib/dev-auth";
 import { generateClusterStructure } from "@/lib/ai/generate-cluster";
 import { scoreAndEnrich } from "@/lib/ai/score-and-enrich";
 import { calculatePriorityScore } from "@/lib/scoring";
@@ -11,16 +11,11 @@ import type { DataSourceContext, CrawledPageData } from "@/lib/data-sources/type
 
 export const maxDuration = 60; // Vercel Pro max; upgrade to Fluid Compute for longer
 
-async function getSetting(key: string): Promise<string | null> {
-  const row = await prisma.appSettings.findUnique({ where: { key } });
-  return row?.value || null;
-}
-
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
+  const session = await devAuth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
@@ -60,8 +55,8 @@ export async function POST(
     let gscQueryRows: { query: string; impressions: number; clicks: number; ctr: number; position: number }[] | null = null;
 
     // DataForSEO
-    const dfLogin = process.env.DATAFORSEO_LOGIN || await getSetting("dataforseo_login");
-    const dfPassword = process.env.DATAFORSEO_PASSWORD || await getSetting("dataforseo_password");
+    const dfLogin = process.env.DATAFORSEO_LOGIN;
+    const dfPassword = process.env.DATAFORSEO_PASSWORD;
 
     if (dfLogin && dfPassword) {
       try {

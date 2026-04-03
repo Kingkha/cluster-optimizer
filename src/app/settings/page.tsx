@@ -88,43 +88,6 @@ function SettingsContent() {
         </div>
       )}
 
-      {/* DataForSEO */}
-      <Card>
-        <CardHeader>
-          <CardTitle>DataForSEO</CardTitle>
-          <CardDescription>
-            Connect DataForSEO for real keyword volume, difficulty, CPC, and SERP
-            competitor data. Get credentials at dataforseo.com.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Login (email)</Label>
-            <Input
-              value={settings.dataforseo_login || ""}
-              onChange={(e) =>
-                setSettings((s) => ({ ...s, dataforseo_login: e.target.value }))
-              }
-              placeholder="your@email.com"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Password</Label>
-            <Input
-              type="password"
-              value={settings.dataforseo_password || ""}
-              onChange={(e) =>
-                setSettings((s) => ({
-                  ...s,
-                  dataforseo_password: e.target.value,
-                }))
-              }
-              placeholder="API password"
-            />
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Google Search Console */}
       <Card>
         <CardHeader>

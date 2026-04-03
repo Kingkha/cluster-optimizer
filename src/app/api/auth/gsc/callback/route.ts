@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { auth } from "@/auth";
+import { devAuth } from "@/lib/dev-auth";
 import { exchangeCode, listProperties } from "@/lib/data-sources/gsc-client";
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
+  const session = await devAuth();
   if (!session?.user?.id) {
     return NextResponse.redirect(new URL("/login", req.url));
   }

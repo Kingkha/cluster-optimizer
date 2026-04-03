@@ -30,8 +30,11 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetch("/api/projects")
-      .then((r) => r.json())
-      .then(setProjects)
+      .then((r) => {
+        if (!r.ok) return [];
+        return r.json();
+      })
+      .then((data) => setProjects(Array.isArray(data) ? data : []))
       .finally(() => setLoading(false));
   }, []);
 

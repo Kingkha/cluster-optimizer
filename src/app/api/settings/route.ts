@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 
-const ALLOWED_KEYS = [
-  "dataforseo_login",
-  "dataforseo_password",
-];
+const ALLOWED_KEYS: string[] = [];
 
 export async function GET() {
   const settings = await prisma.appSettings.findMany();
