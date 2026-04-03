@@ -92,6 +92,7 @@ model Project {
   nodes        ClusterNode[]
   links        LinkSuggestion[]
   missingNodes MissingNode[]
+  briefs       ContentBrief[]
   serpData     SerpData[]
   crawledPages CrawledPage[]
   gscQueries   GscQueryData[]
@@ -130,6 +131,29 @@ model ClusterNode {
   children      ClusterNode[]  @relation("NodeHierarchy")
   outgoingLinks LinkSuggestion[] @relation("LinkSource")
   incomingLinks LinkSuggestion[] @relation("LinkTarget")
+  brief         ContentBrief?
+
+  @@index([projectId])
+}
+
+model ContentBrief {
+  id              String   @id @default(cuid())
+  projectId       String
+  nodeId          String   @unique
+  targetKeyword   String
+  secondaryKeywords String?  // JSON array
+  searchIntent    String
+  wordCountMin    Int
+  wordCountMax    Int
+  outline         String   // JSON array of H2/H3 headings
+  keyPoints       String   // JSON array of key points to cover
+  internalLinks   String   // JSON array of { title, slug, anchorText }
+  competitorAngles String? // JSON array of competitor insights
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  project  Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  node     ClusterNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
 }

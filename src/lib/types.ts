@@ -23,6 +23,7 @@ export interface ProjectWithRelations {
   crawledPages?: CrawledPageRecord[];
   gscQueries?: GscQueryRecord[];
   serpData?: SerpDataRecord[];
+  briefs?: ContentBriefRecord[];
 }
 
 export interface CrawledPageRecord {
@@ -55,6 +56,23 @@ export interface SerpDataRecord {
   serpFeatures: string | null; // JSON string
   topResults: string | null; // JSON string
   fetchedAt: string;
+}
+
+export interface ContentBriefRecord {
+  id: string;
+  projectId: string;
+  nodeId: string;
+  targetKeyword: string;
+  secondaryKeywords: string | null; // JSON array
+  searchIntent: string;
+  wordCountMin: number;
+  wordCountMax: number;
+  outline: string; // JSON array
+  keyPoints: string; // JSON array
+  internalLinks: string; // JSON array
+  competitorAngles: string | null; // JSON array
+  notes: string | null;
+  createdAt: string;
 }
 
 export interface ClusterNodeData {

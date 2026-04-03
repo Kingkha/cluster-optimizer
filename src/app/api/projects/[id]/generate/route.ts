@@ -8,6 +8,7 @@ import { calculatePriorityScore } from "@/lib/scoring";
 import { fetchSerpContext, DataForSEOClient } from "@/lib/data-sources/dataforseo";
 import { crawlSite } from "@/lib/data-sources/site-crawl";
 import { getSearchAnalytics } from "@/lib/data-sources/gsc-client";
+import { generateBriefs } from "@/lib/ai/generate-briefs";
 import type { DataSourceContext, CrawledPageData } from "@/lib/data-sources/types";
 
 export const maxDuration = 60; // Vercel Pro max; upgrade to Fluid Compute for longer
@@ -39,6 +40,7 @@ export async function POST(
   }
 
   // Clear existing data if regenerating
+  await prisma.contentBrief.deleteMany({ where: { projectId: id } });
   await prisma.missingNode.deleteMany({ where: { projectId: id } });
   await prisma.linkSuggestion.deleteMany({ where: { projectId: id } });
   await prisma.clusterNode.deleteMany({ where: { projectId: id } });
@@ -370,6 +372,80 @@ export async function POST(
           parentNodeId,
         },
       });
+    }
+
+    // ── Step 3: Generate content briefs ──
+    await prisma.project.update({
+      where: { id },
+      data: { status: "briefing" },
+    });
+
+    try {
+      // Build node inputs with link context
+      const allLinksForBriefs = await prisma.linkSuggestion.findMany({
+        where: { projectId: id },
+        include: {
+          source: { select: { title: true, slug: true } },
+          target: { select: { title: true, slug: true } },
+        },
+      });
+
+      const briefNodes = allNodes.map((node) => ({
+        title: node.title,
+        slug: node.slug,
+        role: node.role,
+        targetKeyword: node.targetKeyword,
+        searchIntent: node.searchIntent,
+        realVolume: node.realVolume,
+        realDifficulty: node.realDifficulty,
+        incomingLinks: allLinksForBriefs
+          .filter((l) => l.targetId === node.id)
+          .map((l) => ({ sourceTitle: l.source.title, sourceSlug: l.source.slug, anchorText: l.anchorText })),
+        outgoingLinks: allLinksForBriefs
+          .filter((l) => l.sourceId === node.id)
+          .map((l) => ({ targetTitle: l.target.title, targetSlug: l.target.slug, anchorText: l.anchorText })),
+      }));
+
+      // Parse SERP data for competitor context
+      const serpRecord = await prisma.serpData.findFirst({ where: { projectId: id } });
+      const serpCompetitors = serpRecord?.topResults ? JSON.parse(serpRecord.topResults) : [];
+      const serpFeats = serpRecord?.serpFeatures ? JSON.parse(serpRecord.serpFeatures) : [];
+
+      const briefResults = await generateBriefs({
+        topic: project.topic,
+        nodes: briefNodes,
+        serpCompetitors,
+        serpFeatures: serpFeats,
+        keywordGroups: keywordGroups || [],
+      });
+
+      // Save briefs
+      for (const [slug, brief] of briefResults) {
+        const nodeId = slugToId.get(slug);
+        if (!nodeId) continue;
+
+        await prisma.contentBrief.create({
+          data: {
+            projectId: id,
+            nodeId,
+            targetKeyword: brief.targetKeyword,
+            secondaryKeywords: JSON.stringify(brief.secondaryKeywords),
+            searchIntent: brief.searchIntent,
+            wordCountMin: brief.wordCountMin,
+            wordCountMax: brief.wordCountMax,
+            outline: JSON.stringify(brief.outline),
+            keyPoints: JSON.stringify(brief.keyPoints),
+            internalLinks: JSON.stringify(
+              allLinksForBriefs
+                .filter((l) => l.sourceId === nodeId)
+                .map((l) => ({ title: l.target.title, slug: l.target.slug, anchorText: l.anchorText }))
+            ),
+            competitorAngles: JSON.stringify(brief.competitorAngles),
+          },
+        });
+      }
+    } catch (e) {
+      console.warn("Brief generation failed, continuing without:", e);
     }
 
     await prisma.project.update({

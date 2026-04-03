@@ -26,6 +26,7 @@ export async function GET(
       missingNodes: { orderBy: { confidenceScore: "desc" } },
       crawledPages: { orderBy: { path: "asc" } },
       gscQueries: { orderBy: { impressions: "desc" }, take: 100 },
+      briefs: true,
       serpData: { orderBy: { fetchedAt: "desc" } },
     },
   });

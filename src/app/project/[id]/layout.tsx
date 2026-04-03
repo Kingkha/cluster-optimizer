@@ -28,6 +28,7 @@ const statusColors: Record<string, string> = {
   "fetching-data": "bg-cyan-100 text-cyan-800",
   generating: "bg-blue-100 text-blue-800",
   enriching: "bg-purple-100 text-purple-800",
+  briefing: "bg-teal-100 text-teal-800",
   ready: "bg-green-100 text-green-800",
   error: "bg-red-100 text-red-800",
 };
@@ -59,7 +60,7 @@ export default function ProjectLayout({
   useEffect(() => {
     if (
       project &&
-      (["pending", "fetching-data", "generating", "enriching"].includes(project.status))
+      (["pending", "fetching-data", "generating", "enriching", "briefing"].includes(project.status))
     ) {
       const interval = setInterval(fetchProject, 2000);
       return () => clearInterval(interval);
@@ -130,13 +131,14 @@ export default function ProjectLayout({
         {project &&
           (project.status === "pending" ||
             project.status === "generating" ||
-            project.status === "enriching") && (
+            project.status === "enriching" ||
+            project.status === "briefing") && (
             <div className="rounded-lg border bg-card p-6 mb-6">
               <div className="flex items-center gap-3">
                 <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" />
                 <div>
                   <p className="font-medium">
-                    {({ pending: "Preparing...", "fetching-data": "Fetching keyword & SERP data...", generating: "Generating cluster structure...", enriching: "Scoring and detecting gaps..." } as Record<string, string>)[project.status] || "Processing..."}
+                    {({ pending: "Preparing...", "fetching-data": "Fetching keyword & SERP data...", generating: "Generating cluster structure...", enriching: "Scoring and detecting gaps...", briefing: "Writing content briefs..." } as Record<string, string>)[project.status] || "Processing..."}
                   </p>
                   <p className="text-sm text-muted-foreground">
                     This usually takes 30-60 seconds.
@@ -186,6 +188,7 @@ export default function ProjectLayout({
             { href: "/publish-order", label: "Publish Order" },
             { href: "/links", label: "Link Plan" },
             { href: "/missing", label: "Missing Nodes" },
+            { href: "/briefs", label: "Content Briefs" },
           ];
           if (project.serpData && project.serpData.length > 0) {
             tabs.push({ href: "/serp", label: "SERP Analysis" });
