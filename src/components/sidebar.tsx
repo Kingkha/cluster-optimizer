@@ -11,7 +11,7 @@ interface SidebarProps {
 
 const navItems = [
   {
-    href: "/",
+    href: "/dashboard",
     label: "Dashboard",
     icon: (
       <svg viewBox="0 0 20 20" fill="none" className="h-5 w-5" aria-hidden="true">
@@ -53,28 +53,7 @@ export function Sidebar({ user, credits }: SidebarProps) {
     <aside className="fixed inset-y-0 left-0 z-40 flex w-60 flex-col border-r bg-background">
       {/* Logo */}
       <div className="flex h-14 items-center gap-2.5 border-b px-5">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary">
-          <svg
-            viewBox="0 0 16 16"
-            fill="none"
-            className="h-4 w-4 text-primary-foreground"
-            aria-hidden="true"
-          >
-            <path
-              d="M8 1L2 5v6l6 4 6-4V5L8 1z"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M8 5v6M5 6.5l3 2 3-2"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
+        <img src="/images/logo.png" alt="Cluster Optimizer" className="h-7 w-7 shrink-0 rounded-lg" />
         <span className="font-semibold tracking-tight">Cluster Optimizer</span>
       </div>
 
@@ -94,8 +73,8 @@ export function Sidebar({ user, credits }: SidebarProps) {
       {/* Navigation */}
       <nav className="flex-1 space-y-0.5 px-3 py-2">
         {navItems.map((item) => {
-          const isActive = item.href === "/"
-            ? pathname === "/"
+          const isActive = item.href === "/dashboard"
+            ? pathname === "/dashboard"
             : pathname.startsWith(item.href);
 
           return (

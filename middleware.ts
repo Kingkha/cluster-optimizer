@@ -19,10 +19,22 @@ const { auth } = NextAuth({
 });
 
 export default auth((req) => {
-  if (isDev) return NextResponse.next();
+  const response = NextResponse.next();
+  // Pass pathname to layout so it can hide sidebar on public pages
+  response.headers.set("x-pathname", req.nextUrl.pathname);
+
+  if (isDev) return response;
+
+  // Landing page is public
+  if (req.nextUrl.pathname === "/") {
+    return response;
+  }
+
   if (!req.auth) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
+
+  return response;
 });
 
 export const config = {
