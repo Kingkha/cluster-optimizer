@@ -67,19 +67,85 @@ Models defined in `prisma/schema.prisma` (PostgreSQL via Neon):
 
 All child models cascade-delete when their parent Project is deleted.
 
-## AI Pipeline
+## Generation Pipeline
 
-Two-step process in `/api/projects/[id]/generate/route.ts`:
+Full pipeline in `/api/projects/[id]/generate/route.ts`. Total cost: **~$0.35** (~$0.07 DataForSEO + ~$0.28 Claude). Takes ~30-40s.
 
-1. **Generate Cluster Structure** (`lib/ai/generate-cluster.ts`) — single Claude call returns 12-20 nodes + link suggestions as JSON
-2. **Score & Detect Missing Nodes** (`lib/ai/score-and-enrich.ts`) — second Claude call scores each node (0-100) on 5 dimensions and suggests 3-7 missing pages
+### Step 0: Fetch Real Data (~$0.06-0.12 DataForSEO)
+
+```
+Status: fetching-data
+```
+
+Uses cascading DataForSEO calls (`lib/data-sources/dataforseo.ts`):
+
+1. **`getSerpResults`** ($0.05) — top 10 organic results + SERP features for competitor context
+2. **`getKeywordSuggestions`** (Labs, $0.01) — seed keyword metrics (volume, KD, CPC) + up to 50 keyword variations with volume + difficulty. This is the primary data source.
+3. **Fallback only if suggestions return <3 results** (niche keywords):
+   - `getKeywordData` (Google Ads, $0.05) — seed volume/CPC
+   - `getRelatedKeywords` (Google Ads, $0.075) — broader keyword ideas
+
+Also crawls the user's site if domain is provided (up to 50 pages, cached).
+
+**Cost optimization**: Labs endpoints are ~$0.01 each vs Google Ads at $0.05-0.075. Always try Labs first, fall back to Ads only for niche keywords with no Labs data. Labs endpoints require English-supported locations — non-English locations fall back to US (2840).
+
+### Step 0.5: Group Keywords (~$0.01 Claude)
+
+```
+Status: fetching-data (continued)
+```
+
+`lib/ai/group-keywords.ts` — one Claude call groups related keywords into 4-8 subtopic clusters. Group count determines cluster size (3 groups → 5-8 pages, 8+ groups → 15-20 pages).
+
+### Step 1: Generate Cluster Structure (~$0.05 Claude)
+
+```
+Status: generating
+```
+
+`lib/ai/generate-cluster.ts` — one Claude Sonnet call. Prompt includes seed metrics, grouped keywords, SERP competitors, and existing site pages. Returns 5-20 nodes + link suggestions as JSON.
+
+After node creation, fetches **keyword difficulty** for all target keywords via Labs `bulk_keyword_difficulty` ($0.01). Volume for target keywords is reused from Step 0 suggestions data (no extra Google Ads call).
+
+### Step 2: Score & Detect Missing Nodes (~$0.04 Claude)
+
+```
+Status: enriching
+```
+
+`lib/ai/score-and-enrich.ts` — one Claude call scores each node on 5 dimensions (0-100):
 
 Priority score formula (`lib/scoring.ts`):
 ```
 centrality × 0.30 + supportValue × 0.25 + opportunity × 0.20 + ease × 0.10 + serpClarity × 0.15
 ```
 
-Both steps use `claude-sonnet-4-20250514` with `max_tokens: 4096`.
+Also suggests 3-7 missing pages with confidence scores.
+
+### Step 3: Generate Content Briefs (~$0.17 Claude)
+
+```
+Status: briefing
+```
+
+`lib/ai/generate-briefs.ts` — batches of 3 nodes per Claude call (max_tokens: 8192). Each brief includes target/secondary keywords, word count range, H2/H3 outline, key points, competitor angles.
+
+### Polling & Stale Detection
+
+- Client polls `GET /api/projects/[id]?status=1` every 2s (lightweight: only fetches status + error)
+- Full data fetch only on initial load and when status changes to `ready`
+- **Stale detection**: if status hasn't changed in >2 minutes, auto-marks as `error`
+- Client-side 3-minute timeout as additional safety net
+
+### Keyword Research (optional, pre-generation)
+
+`/api/keyword-research` — "Find Best Keyword" button in new project form. Cascading fallback:
+1. `getKeywordSuggestions` (Labs, $0.01) — if 5+ results, done
+2. `getRelatedKeywordsLabs` (Labs, $0.01) — if 5+ results, done
+3. `getRelatedKeywords` + `getKeywordData` (Google Ads, $0.12) — broadest, for niche keywords
+4. `getKeywordDifficulty` (Labs, $0.01) — backfill KD for candidates missing it
+
+Ranked by opportunity score: `volume × (1 - difficulty/100)²`
 
 JSON parsing (`lib/ai/parse-response.ts`) handles: direct parse, markdown code fences, and first-brace-to-last-brace extraction.
 
@@ -98,7 +164,7 @@ JSON parsing (`lib/ai/parse-response.ts`) handles: direct parse, markdown code f
 
 - **Client components** — all pages use `"use client"` with React hooks
 - **Project context** — `useProject()` hook in project layout provides shared state + polling
-- **Polling** — project detail page polls `/api/projects/[id]` every 2s while status is `generating` or `enriching`
+- **Polling** — project detail page polls `/api/projects/[id]?status=1` (lightweight) every 2s while generating; full fetch on completion
 - **Path alias** — `@/*` maps to `./src/*`
 - **Imports** — Prisma client from `@/generated/prisma/client`, not `@/generated/prisma`
 
@@ -114,18 +180,17 @@ npm run dev                 # Start at http://localhost:3000
 ### Environment Variables (`.env`)
 
 ```
-# Local dev — local Postgres or Neon dev branch
 DATABASE_URL="postgresql://user:password@localhost:5432/cluster_optimizer"
-
-# Production — Neon connection string (set via Vercel <-> Neon integration)
-# DATABASE_URL="postgresql://..."
-
 ANTHROPIC_API_KEY=sk-ant-...
+
+# DataForSEO — keyword data, SERP results, keyword difficulty
+DATAFORSEO_LOGIN=...
+DATAFORSEO_PASSWORD=...
 
 # Google OAuth — set once by the operator; users just click "Connect GSC"
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
-GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/gsc/callback   # change to prod URL on deploy
+GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/gsc/callback
 ```
 
 ## Deploying to Vercel
@@ -164,5 +229,5 @@ npx prisma generate  # Regenerate Prisma client after schema changes
 
 - `.env` and `dev.db` are gitignored — never commit secrets or local DB
 - `src/generated/prisma/` is gitignored — run `npx prisma generate` after cloning
-- The generate endpoint has `maxDuration = 120` (seconds) for AI calls
+- The generate endpoint has `maxDuration = 60` (seconds) for AI calls
 - Export supports `?format=md` (default) and `?format=csv` query params

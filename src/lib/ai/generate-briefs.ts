@@ -41,10 +41,10 @@ export async function generateBriefs(params: GenerateBriefsParams): Promise<Map<
   const client = new Anthropic();
   const results = new Map<string, BriefOutput>();
 
-  // Batch nodes into groups of 5
+  // Batch nodes into groups of 3 (5 was too large, causing truncated JSON)
   const batches: BriefInput[][] = [];
-  for (let i = 0; i < params.nodes.length; i += 5) {
-    batches.push(params.nodes.slice(i, i + 5));
+  for (let i = 0; i < params.nodes.length; i += 3) {
+    batches.push(params.nodes.slice(i, i + 3));
   }
 
   // Build shared context once
@@ -55,11 +55,16 @@ export async function generateBriefs(params: GenerateBriefsParams): Promise<Map<
 
     const message = await client.messages.create({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
+      max_tokens: 8192,
       messages: [{ role: "user", content: prompt }],
     });
 
     const text = message.content[0].type === "text" ? message.content[0].text : "";
+
+    if (message.stop_reason === "max_tokens") {
+      console.warn(`Brief batch truncated (${batch.length} nodes hit max_tokens), skipping`);
+      continue;
+    }
 
     try {
       const parsed = extractJSON<Record<string, BriefOutput>>(text);

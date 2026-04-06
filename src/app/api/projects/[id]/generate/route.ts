@@ -5,9 +5,9 @@ import { generateClusterStructure } from "@/lib/ai/generate-cluster";
 import { groupKeywordsBySubtopic, type KeywordGroup } from "@/lib/ai/group-keywords";
 import { scoreAndEnrich } from "@/lib/ai/score-and-enrich";
 import { calculatePriorityScore } from "@/lib/scoring";
-import { fetchSerpContext, DataForSEOClient } from "@/lib/data-sources/dataforseo";
+import { fetchSerpContext, DataForSEOClient, getLocationCode, LABS_ENGLISH_LOCATIONS } from "@/lib/data-sources/dataforseo";
 import { crawlSite } from "@/lib/data-sources/site-crawl";
-import { getSearchAnalytics } from "@/lib/data-sources/gsc-client";
+
 import { generateBriefs } from "@/lib/ai/generate-briefs";
 import type { DataSourceContext, CrawledPageData } from "@/lib/data-sources/types";
 
@@ -39,12 +39,14 @@ export async function POST(
     return NextResponse.json({ error: "Insufficient credits", code: "NO_CREDITS" }, { status: 402 });
   }
 
-  // Clear existing data if regenerating
-  await prisma.contentBrief.deleteMany({ where: { projectId: id } });
-  await prisma.missingNode.deleteMany({ where: { projectId: id } });
-  await prisma.linkSuggestion.deleteMany({ where: { projectId: id } });
-  await prisma.clusterNode.deleteMany({ where: { projectId: id } });
-  await prisma.serpData.deleteMany({ where: { projectId: id } });
+  // Clear existing data if regenerating (order matters for FK constraints)
+  await prisma.$transaction([
+    prisma.contentBrief.deleteMany({ where: { projectId: id } }),
+    prisma.missingNode.deleteMany({ where: { projectId: id } }),
+    prisma.linkSuggestion.deleteMany({ where: { projectId: id } }),
+    prisma.clusterNode.deleteMany({ where: { projectId: id } }),
+    prisma.serpData.deleteMany({ where: { projectId: id } }),
+  ]);
 
   try {
     // ── Step 0: Fetch real data (optional, graceful) ──
@@ -55,11 +57,10 @@ export async function POST(
 
     let serpContext: DataSourceContext | null = null;
     let crawledPages: CrawledPageData[] | null = null;
-    let gscQueryRows: { query: string; impressions: number; clicks: number; ctr: number; position: number }[] | null = null;
-
     // DataForSEO
     const dfLogin = process.env.DATAFORSEO_LOGIN;
     const dfPassword = process.env.DATAFORSEO_PASSWORD;
+    const locationCode = getLocationCode(project.country);
 
     if (dfLogin && dfPassword) {
       try {
@@ -106,20 +107,18 @@ export async function POST(
         const existing = await prisma.crawledPage.count({ where: { projectId: id } });
         if (existing === 0) {
           crawledPages = await crawlSite(project.domain, 50);
-          for (const page of crawledPages) {
-            await prisma.crawledPage.create({
-              data: {
-                projectId: id,
-                url: page.url,
-                path: page.path,
-                title: page.title,
-                metaDescription: page.metaDescription,
-                h1: page.h1,
-                headings: JSON.stringify(page.headings),
-                wordCount: page.wordCount,
-              },
-            });
-          }
+          await prisma.crawledPage.createMany({
+            data: crawledPages.map((page) => ({
+              projectId: id,
+              url: page.url,
+              path: page.path,
+              title: page.title,
+              metaDescription: page.metaDescription,
+              h1: page.h1,
+              headings: JSON.stringify(page.headings),
+              wordCount: page.wordCount,
+            })),
+          });
           await prisma.project.update({
             where: { id },
             data: { crawlStatus: "crawled" },
@@ -139,48 +138,6 @@ export async function POST(
         }
       } catch (e) {
         console.warn("Site crawl failed, continuing without:", e);
-      }
-    }
-
-    // GSC data (if connection exists for this domain)
-    if (project.domain) {
-      try {
-        const domainClean = project.domain.replace(/^https?:\/\//, "").replace(/\/$/, "");
-        const gscConn = await prisma.gscConnection.findFirst({
-          where: {
-            OR: [
-              { propertyUrl: `sc-domain:${domainClean}` },
-              { propertyUrl: `https://${domainClean}/` },
-              { propertyUrl: { contains: domainClean } },
-            ],
-          },
-        });
-
-        if (gscConn) {
-          gscQueryRows = await getSearchAnalytics(
-            gscConn.accessToken,
-            gscConn.refreshToken,
-            gscConn.propertyUrl,
-            28
-          );
-
-          // Cache GSC data
-          await prisma.gscQueryData.deleteMany({ where: { projectId: id } });
-          for (const q of gscQueryRows.slice(0, 500)) {
-            await prisma.gscQueryData.create({
-              data: {
-                projectId: id,
-                query: q.query,
-                impressions: q.impressions,
-                clicks: q.clicks,
-                ctr: q.ctr,
-                position: q.position,
-              },
-            });
-          }
-        }
-      } catch (e) {
-        console.warn("GSC fetch failed, continuing without:", e);
       }
     }
 
@@ -214,56 +171,55 @@ export async function POST(
       keywordGroups,
     });
 
-    // Save nodes
+    // Save nodes (batch create, get IDs back)
+    const createdNodes = await prisma.clusterNode.createManyAndReturn({
+      data: cluster.nodes.map((n, i) => ({
+        projectId: id,
+        title: n.title,
+        slug: n.slug,
+        role: n.role,
+        groupName: n.groupName || null,
+        targetKeyword: n.targetKeyword || null,
+        searchIntent: n.searchIntent || null,
+        sortOrder: i,
+        publishOrder: i,
+      })),
+    });
+
     const slugToId = new Map<string, string>();
-
-    for (let i = 0; i < cluster.nodes.length; i++) {
-      const n = cluster.nodes[i];
-      const node = await prisma.clusterNode.create({
-        data: {
-          projectId: id,
-          title: n.title,
-          slug: n.slug,
-          role: n.role,
-          groupName: n.groupName || null,
-          targetKeyword: n.targetKeyword || null,
-          searchIntent: n.searchIntent || null,
-          sortOrder: i,
-          publishOrder: i,
-        },
-      });
-      slugToId.set(n.slug, node.id);
+    for (const node of createdNodes) {
+      slugToId.set(node.slug, node.id);
     }
 
-    // Set parent references
-    for (const n of cluster.nodes) {
-      if (n.parentSlug && slugToId.has(n.parentSlug)) {
-        await prisma.clusterNode.update({
+    // Set parent references (batch via transaction)
+    const parentUpdates = cluster.nodes
+      .filter((n) => n.parentSlug && slugToId.has(n.parentSlug))
+      .map((n) =>
+        prisma.clusterNode.update({
           where: { id: slugToId.get(n.slug)! },
-          data: { parentId: slugToId.get(n.parentSlug)! },
-        });
-      }
+          data: { parentId: slugToId.get(n.parentSlug!)! },
+        })
+      );
+    if (parentUpdates.length > 0) {
+      await prisma.$transaction(parentUpdates);
     }
 
-    // Save links
-    for (const link of cluster.links) {
-      const sourceId = slugToId.get(link.sourceSlug);
-      const targetId = slugToId.get(link.targetSlug);
-      if (sourceId && targetId) {
-        await prisma.linkSuggestion.create({
-          data: {
-            projectId: id,
-            sourceId,
-            targetId,
-            anchorText: link.anchorText,
-            context: link.context || null,
-            linkType: link.linkType || "contextual",
-          },
-        });
-      }
+    // Save links (batch)
+    const linkData = cluster.links
+      .filter((link) => slugToId.has(link.sourceSlug) && slugToId.has(link.targetSlug))
+      .map((link) => ({
+        projectId: id,
+        sourceId: slugToId.get(link.sourceSlug)!,
+        targetId: slugToId.get(link.targetSlug)!,
+        anchorText: link.anchorText,
+        context: link.context || null,
+        linkType: link.linkType || "contextual",
+      }));
+    if (linkData.length > 0) {
+      await prisma.linkSuggestion.createMany({ data: linkData });
     }
 
-    // Fetch real keyword data for generated target keywords
+    // Fetch keyword difficulty for generated target keywords (Labs, ~$0.01)
     let realKeywordData: Map<string, { volume: number; difficulty: number | null }> | null = null;
 
     if (dfLogin && dfPassword) {
@@ -274,39 +230,50 @@ export async function POST(
 
         if (targetKeywords.length > 0) {
           const client = new DataForSEOClient(dfLogin, dfPassword);
-          const kwData = await client.getKeywordData(targetKeywords);
+          const labsLocationCode = LABS_ENGLISH_LOCATIONS.has(locationCode) ? locationCode : 2840;
+          const kwDifficulty = await client.getKeywordDifficulty(targetKeywords, labsLocationCode);
 
+          // Build realKeywordData from KD + any volume we already have from serpContext
           realKeywordData = new Map();
-          for (const [kw, data] of kwData) {
-            if (data.volume != null) {
-              realKeywordData.set(kw, {
-                volume: data.volume,
-                difficulty: data.difficulty,
-              });
+          const existingVolumes = new Map<string, number>();
+          if (serpContext?.relatedKeywords) {
+            for (const rk of serpContext.relatedKeywords) {
+              existingVolumes.set(rk.keyword.toLowerCase(), rk.volume);
+            }
+          }
+          if (serpContext?.seedKeyword?.volume != null) {
+            existingVolumes.set(project.topic.toLowerCase(), serpContext.seedKeyword.volume);
+          }
+
+          for (const kw of targetKeywords) {
+            const difficulty = kwDifficulty.get(kw) ?? null;
+            const volume = existingVolumes.get(kw.toLowerCase()) ?? null;
+            if (difficulty != null || volume != null) {
+              realKeywordData.set(kw, { volume: volume ?? 0, difficulty });
             }
           }
 
-          // Save real metrics to nodes
-          for (const n of cluster.nodes) {
-            if (n.targetKeyword && kwData.has(n.targetKeyword)) {
-              const kd = kwData.get(n.targetKeyword)!;
-              const nodeId = slugToId.get(n.slug);
-              if (nodeId) {
-                await prisma.clusterNode.update({
-                  where: { id: nodeId },
-                  data: {
-                    realVolume: kd.volume,
-                    realDifficulty: kd.difficulty,
-                    realCpc: kd.cpc,
-                    dataSource: "dataforseo",
-                  },
-                });
-              }
-            }
+          // Save KD to nodes (batch via transaction)
+          const metricUpdates = cluster.nodes
+            .filter((n) => n.targetKeyword && kwDifficulty.has(n.targetKeyword) && slugToId.has(n.slug))
+            .map((n) => {
+              const difficulty = kwDifficulty.get(n.targetKeyword!)!;
+              const volume = existingVolumes.get(n.targetKeyword!.toLowerCase()) ?? null;
+              return prisma.clusterNode.update({
+                where: { id: slugToId.get(n.slug)! },
+                data: {
+                  realDifficulty: difficulty,
+                  ...(volume != null && { realVolume: volume }),
+                  dataSource: "dataforseo",
+                },
+              });
+            });
+          if (metricUpdates.length > 0) {
+            await prisma.$transaction(metricUpdates);
           }
         }
       } catch (e) {
-        console.warn("DataForSEO keyword batch failed:", e);
+        console.warn("DataForSEO keyword difficulty failed:", e);
       }
     }
 
@@ -325,52 +292,47 @@ export async function POST(
         parentSlug: n.parentSlug,
       })),
       realKeywordData,
-      gscQueryRows
     );
 
-    // Apply scores
-    for (const [slug, scores] of Object.entries(enrichment.scores)) {
-      const nodeId = slugToId.get(slug);
-      if (nodeId) {
-        const priorityScore = calculatePriorityScore(scores);
-        await prisma.clusterNode.update({
-          where: { id: nodeId },
-          data: {
-            centrality: scores.centrality,
-            supportValue: scores.supportValue,
-            opportunity: scores.opportunity,
-            ease: scores.ease,
-            serpClarity: scores.serpClarity,
-            priorityScore,
-          },
-        });
-      }
-    }
+    // Apply scores + publish order (single transaction)
+    const scoredNodes = Object.entries(enrichment.scores)
+      .filter(([slug]) => slugToId.has(slug))
+      .map(([slug, scores]) => ({
+        id: slugToId.get(slug)!,
+        priorityScore: calculatePriorityScore(scores),
+        scores,
+      }))
+      .sort((a, b) => b.priorityScore - a.priorityScore);
 
-    // Set publish order by priority
-    const allNodes = await prisma.clusterNode.findMany({
-      where: { projectId: id },
-      orderBy: { priorityScore: "desc" },
-    });
-    for (let i = 0; i < allNodes.length; i++) {
-      await prisma.clusterNode.update({
-        where: { id: allNodes[i].id },
-        data: { publishOrder: i + 1 },
-      });
-    }
-
-    // Save missing nodes
-    for (const mn of enrichment.missingNodes) {
-      const parentNodeId = mn.parentSlug ? slugToId.get(mn.parentSlug) || null : null;
-      await prisma.missingNode.create({
+    const scoreAndOrderUpdates = scoredNodes.map((node, i) =>
+      prisma.clusterNode.update({
+        where: { id: node.id },
         data: {
+          centrality: node.scores.centrality,
+          supportValue: node.scores.supportValue,
+          opportunity: node.scores.opportunity,
+          ease: node.scores.ease,
+          serpClarity: node.scores.serpClarity,
+          priorityScore: node.priorityScore,
+          publishOrder: i + 1,
+        },
+      })
+    );
+    if (scoreAndOrderUpdates.length > 0) {
+      await prisma.$transaction(scoreAndOrderUpdates);
+    }
+
+    // Save missing nodes (batch)
+    if (enrichment.missingNodes.length > 0) {
+      await prisma.missingNode.createMany({
+        data: enrichment.missingNodes.map((mn) => ({
           projectId: id,
           suggestedTitle: mn.suggestedTitle,
           suggestedRole: mn.suggestedRole,
           reason: mn.reason,
           confidenceScore: mn.confidenceScore,
-          parentNodeId,
-        },
+          parentNodeId: mn.parentSlug ? slugToId.get(mn.parentSlug) || null : null,
+        })),
       });
     }
 
@@ -388,6 +350,12 @@ export async function POST(
           source: { select: { title: true, slug: true } },
           target: { select: { title: true, slug: true } },
         },
+      });
+
+      // Re-fetch nodes with updated scores for brief generation
+      const allNodes = await prisma.clusterNode.findMany({
+        where: { projectId: id },
+        orderBy: { priorityScore: "desc" },
       });
 
       const briefNodes = allNodes.map((node) => ({
@@ -419,13 +387,12 @@ export async function POST(
         keywordGroups: keywordGroups || [],
       });
 
-      // Save briefs
-      for (const [slug, brief] of briefResults) {
-        const nodeId = slugToId.get(slug);
-        if (!nodeId) continue;
-
-        await prisma.contentBrief.create({
-          data: {
+      // Save briefs (batch)
+      const briefData = [...briefResults.entries()]
+        .filter(([slug]) => slugToId.has(slug))
+        .map(([slug, brief]) => {
+          const nodeId = slugToId.get(slug)!;
+          return {
             projectId: id,
             nodeId,
             targetKeyword: brief.targetKeyword,
@@ -441,8 +408,10 @@ export async function POST(
                 .map((l) => ({ title: l.target.title, slug: l.target.slug, anchorText: l.anchorText }))
             ),
             competitorAngles: JSON.stringify(brief.competitorAngles),
-          },
+          };
         });
+      if (briefData.length > 0) {
+        await prisma.contentBrief.createMany({ data: briefData });
       }
     } catch (e) {
       console.warn("Brief generation failed, continuing without:", e);

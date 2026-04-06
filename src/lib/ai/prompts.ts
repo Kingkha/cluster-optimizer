@@ -194,7 +194,6 @@ export function scoringPrompt(
   topic: string,
   nodesJson: string,
   realKeywordData?: Map<string, { volume: number; difficulty: number | null }> | null,
-  gscData?: { query: string; impressions: number; clicks: number; position: number }[] | null
 ): string {
   const parts = [
     `You are an expert SEO content strategist. Analyze this content cluster about "${topic}" and provide scoring data and missing node suggestions.`,
@@ -212,17 +211,6 @@ export function scoringPrompt(
     parts.push(
       ``,
       `Use these real metrics to inform your opportunity and serpClarity scores. Keywords with high volume and low difficulty should score higher on opportunity.`
-    );
-  }
-
-  if (gscData && gscData.length > 0) {
-    parts.push(``, `## Real Google Search Console Data`);
-    for (const q of gscData.slice(0, 30)) {
-      parts.push(`- "${q.query}": ${q.impressions} impr, ${q.clicks} clicks, pos ${q.position.toFixed(1)}`);
-    }
-    parts.push(
-      ``,
-      `Use GSC data to validate opportunity. Queries with high impressions but low clicks or poor position are high-opportunity targets.`
     );
   }
 

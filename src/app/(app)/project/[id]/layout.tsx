@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, createContext, useContext } from "react";
+import { useEffect, useState, useCallback, useRef, createContext, useContext } from "react";
 import { useParams, usePathname } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -42,30 +42,57 @@ export default function ProjectLayout({
   const pathname = usePathname();
   const [project, setProject] = useState<ProjectWithRelations | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pollStart] = useState(() => Date.now());
 
-  const fetchProject = useCallback(() => {
-    fetch(`/api/projects/${id}`)
+  const isGenerating = project &&
+    ["pending", "fetching-data", "generating", "enriching", "briefing"].includes(project.status);
+
+  const fetchProject = useCallback((statusOnly = false) => {
+    const url = statusOnly
+      ? `/api/projects/${id}?status=1`
+      : `/api/projects/${id}`;
+    fetch(url)
       .then((r) => r.json())
       .then((data) => {
-        setProject(data);
+        if (statusOnly) {
+          // Merge status into existing project data
+          setProject((prev) => prev ? { ...prev, ...data } : data);
+        } else {
+          setProject(data);
+        }
         setLoading(false);
       });
   }, [id]);
 
+  // Initial full fetch
   useEffect(() => {
-    fetchProject();
+    fetchProject(false);
   }, [fetchProject]);
 
-  // Poll while generating
+  // Lightweight poll while generating (status only), with 3-min timeout
   useEffect(() => {
-    if (
-      project &&
-      (["pending", "fetching-data", "generating", "enriching", "briefing"].includes(project.status))
-    ) {
-      const interval = setInterval(fetchProject, 2000);
-      return () => clearInterval(interval);
+    if (!isGenerating) return;
+
+    const POLL_TIMEOUT = 3 * 60 * 1000; // 3 minutes
+    const interval = setInterval(() => {
+      if (Date.now() - pollStart > POLL_TIMEOUT) {
+        clearInterval(interval);
+        setProject((p) => p ? { ...p, status: "error", errorMsg: "Generation timed out. Try again." } : p);
+        return;
+      }
+      fetchProject(true);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [isGenerating, fetchProject, pollStart]);
+
+  // Full refetch when generation completes
+  const prevStatus = useRef(project?.status);
+  useEffect(() => {
+    if (prevStatus.current && prevStatus.current !== "ready" && project?.status === "ready") {
+      fetchProject(false);
     }
-  }, [project, fetchProject]);
+    prevStatus.current = project?.status;
+  }, [project?.status, fetchProject]);
 
   const basePath = `/project/${id}`;
 

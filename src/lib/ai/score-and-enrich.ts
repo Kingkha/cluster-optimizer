@@ -27,7 +27,6 @@ export async function scoreAndEnrich(
   topic: string,
   nodes: { title: string; slug: string; role: string; parentSlug: string | null }[],
   realKeywordData?: Map<string, { volume: number; difficulty: number | null }> | null,
-  gscData?: { query: string; impressions: number; clicks: number; position: number }[] | null
 ): Promise<EnrichmentResult> {
   const client = new Anthropic();
 
@@ -37,7 +36,7 @@ export async function scoreAndEnrich(
     2
   );
 
-  const prompt = scoringPrompt(topic, nodesJson, realKeywordData, gscData);
+  const prompt = scoringPrompt(topic, nodesJson, realKeywordData);
 
   const message = await client.messages.create({
     model: "claude-sonnet-4-20250514",
